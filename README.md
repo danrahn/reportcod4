@@ -121,7 +121,9 @@ Remove the given TeamSpeak id from the list of users to be poked.
 List the current set of users to be poked.
 
 Example of !tsreport commands:
+
 ![tsreport command examples](http://i.imgur.com/rHZBqrz.jpg)
 
 Example of TeamSpeak side interaction:
+
 ![TeamSpeak integration](http://i.imgur.com/5clhIEm.png)
