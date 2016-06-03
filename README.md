@@ -10,6 +10,7 @@ pokes and channel broadcasts to a TeamSpeak 3 server.
 ***
 #### !report \<player\> \<reason\>
 ![Example](http://i.imgur.com/OSloLsV.jpg)
+
 Above, the first line is the report (to team chat), the second is the pm
 to the reporter, and the rest is the pm to the admins on the server.
 
