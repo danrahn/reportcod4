@@ -1,7 +1,8 @@
 #
-# PowerAdmin Plugin for BigBrotherBot(B3) (www.bigbrotherbot.com)
-# Allows a superadmin to toggle hardcore/friendly fire, as well as
-# restart the map.
+# Report plugin for BigBrotherBot(B3) (www.bigbrotherbot.com)
+# Allows users to report other users quietly, and lets admins
+# manage the reports. Optional TeamSpeak integration allows
+# custom pokes and channel broadcasts as well.
 #
 # CHANGELOG
 # 2016/06/02 - 0.3.0 - DTR     - Added cached banned status to reduce db calls
