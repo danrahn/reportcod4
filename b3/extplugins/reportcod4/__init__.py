@@ -5,6 +5,7 @@
 # custom pokes and channel broadcasts as well.
 #
 # CHANGELOG
+# 2016/06/06 - 0.4.0 - DTR     - Back support for B3 1.9.2
 # 2016/06/02 - 0.3.0 - DTR     - Added cached banned status to reduce db calls
 # 2016/05/29 - 0.2.0 - DTR     - Added teamspeak poking/messaging support
 # 2016/05/27 - 0.1.0 - DTR     - Initial Release
@@ -15,8 +16,7 @@ __version__ = '0.3'
 import b3
 import b3.plugin
 import b3.events
-from b3.config import NoOptionError
-from b3.functions import prefixText
+from ConfigParser import NoOptionError
 from b3.functions import minutesStr
 import os
 import re
@@ -95,7 +95,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         self._config_load('_max_report_count', 'max_reports_in_interval', True)
         self._config_load('_reporter_limit', 'max_reporters_to_show', True)
 
-        # Teamspeak settings        
+        # Teamspeak settings
         try:
             self._ts_enabled = self.config.getboolean('settings', 'ts_enable')
             self.debug('loaded settings/ts_enable: %s' % self._ts_enabled)
@@ -122,8 +122,9 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         :return: False on error
         """
 
-        self.registerEvent(self.registerEvent('EVT_CLIENT_SAY', self.on_say))
-        self.registerEvent(self.registerEvent('EVT_CLIENT_DISCONNECT', self.client_disconnect))
+        self.registerEvent(b3.events.EVT_CLIENT_SAY)  # , self.on_say))
+        self.registerEvent(b3.events.EVT_CLIENT_TEAM_SAY)
+        self.registerEvent(b3.events.EVT_CLIENT_DISCONNECT)  # , self.client_disconnect))
         self._adminPlugin = self.console.getPlugin('admin')
         if not self._adminPlugin:
             self.error('Could not load adminPlugin, aborting')
@@ -187,6 +188,15 @@ class Reportcod4Plugin(b3.plugin.Plugin):
 
         self.debug('ReportCod4 Plugin Started')
 
+    def onEvent(self, event):
+        if event.type == b3.events.EVT_CLIENT_SAY:
+            self.on_say(event)
+        elif event.type == b3.events.EVT_CLIENT_TEAM_SAY:
+            if int(b3.__version__.split('.')[1]) < 10:
+                self._adminPlugin.OnSay(event)
+        elif event.type == b3.events.EVT_CLIENT_DISCONNECT:
+            self.client_disconnect(event)
+
     def getCmd(self, cmd):
         """
         Map the given command to its correct cmd_x function
@@ -201,8 +211,9 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         """
         Build the database tables needed if not present
         """
-        sql_main = os.path.join(b3.getAbsolutePath('@b3/extplugins/reportcod4/sql'), self.console.storage.protocol)
-        current_tables = self.console.storage.getTables()
+        sql_main = os.path.join(b3.getAbsolutePath('@b3/extplugins/reportcod4/sql'), 'mysql')
+        current_tables = self.get_tables()
+        # current_tables = self.console.storage.getTables()
         for f in os.listdir(sql_main):
             if f[:len(f) - len('.sql')] in current_tables:
                 self.debug('Table %s found' % f)
@@ -221,13 +232,13 @@ class Reportcod4Plugin(b3.plugin.Plugin):
 
     def cmd_report(self, data, client, cmd=None):
         """
-        <player> <reason> - report a player to the admins. Use ^3!report help ^7 for more info.
+        <player> <reason> - report a player to the admins. Surround their name in single quotes if it contains spaces.
         """
         # First check to see if the client is banned
         clientid = int(client.cid)
         if clientid not in self._banned_status:
-            self._banned_status[clientid] = self._is_banned(client.id)
-        if self._banned_status[clientid]:
+            self._banned_status[client.id] = self._is_banned(client.id)
+        if self._banned_status[client.id]:
             client.message(self._client_banned_message)
             return
 
@@ -241,30 +252,39 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                 client.message(self._report_spam % (self._reporter_limit, minutesStr(str(self._report_interval) + 's')))
                 return
 
+            quotes = re.match(r"'(.*?)'(.*)", data)
+            decoded_quotes = None
+            reason = None
+            if quotes:
+                decoded_quotes = quotes.group(1).lower()
+                reason = quotes.group(2).lower()
             data = data.split(' ', 1)
+            if reason is None:
+                reason = data[1]
             if len(data) == 1:
                 # Only time it's okay to have a single argument is if they're using
                 # 'help' or 'ex'
-                data = data[0].lower()
-                if data == 'help':
-                    client.message(self._report_help)
-                elif data == 'ex':
-                    # Very ugly way to enable the latin-1 encodings to be sent via rcon
-                    # TODO: Find a better way to do this other than temporarily overriding function
-                    temp = self.console.output.encode_data
-                    self.console.output.encode_data = self.temp_encode_data
-                    for msg in self._report_examples:
-                        msg = prefixText([self.console.msgPrefix, self.console.pmPrefix], msg)
-                        self.console.output.sendRcon('tell %s %s' % (client.cid, msg))
-                    self.console.output.encode_data = temp
-                else:
-                    client.message('^7You must supply a reason.')
+                # data = data[0].lower()
+                # if data == 'help':
+                #     client.message(self._report_help)
+                # elif data == 'ex':
+                #     # Very ugly way to enable the latin-1 encodings to be sent via rcon
+                #     # TODO: Find a better way to do this other than temporarily overriding function
+                #     temp = self.console.output.encode_data
+                #     self.console.output.encode_data = self.temp_encode_data
+                #     for msg in self._report_examples:
+                #         msg = prefixText([self.console.msgPrefix, self.console.pmPrefix], msg)
+                #         self.console.output.sendRcon('tell %s %s' % (client.cid, msg))
+                #     self.console.output.encode_data = temp
+                # else:
+                #     client.message('^7You must supply a reason.')
+                client.message('^7You must supply a reason')
                 return
 
             found = False
             decoded = data[0].lower()
             # Replace underscores with spaces (but don't completely disregard them)
-            decoded_sp = decoded.replace('_', ' ')
+            # decoded_quotes = decoded.replace('_', ' ')
 
             # Grab current admins
             # TODO: Potentially use getClientsByLevel if we want to customize level
@@ -301,8 +321,12 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                     # If "noname" specified (all special characters=blank name), add those
                     # with an empty name/those only their @id as their name to the list
                     matches.extend([c for c in clients if c.name == '' or c.name[:1] == '@'])
-                if decoded != decoded_sp:
-                    matches.extend([c for c in clients if decoded_sp in c.name.lower()])
+                if decoded_quotes:
+                    extras = [c for c in clients if decoded_quotes in c.name.lower()]
+                    for extra in extras:
+                        if extra not in matches:
+                            matches.append(extra)
+                    # matches.extend([c for c in clients if decoded_quotes in c.name.lower()])
 
             # No matches found
             if len(matches) == 0:
@@ -323,7 +347,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                     self._send_report(client, player_id, data[1])
                     reports = self._get_report(player_id)
                     for admin in admins:
-                        self._admin_report(admin, client.name, client.cid, match.name, match.cid, data[1], reports)
+                        self._admin_report(admin, client.name, client.cid, match.name, match.cid, reason, reports)
                     no_admins = False
 
                 # Send TS messages
@@ -419,7 +443,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         elif len(users) == 1:
             reporters, additional = self._get_reporters(users[0].id)
             msg = '(^2%d^7 not shown)' % additional if additional > 0 else ''
-            client.message('^7Reporters: %s' % msg)
+            client.message('^7Reporters for %s: %s' % (users[0].name, msg))
             lst = []
             for reporter in reporters:
                 cli = self.console.clients.getByDB('@%d' % reporter['id'])[0]
@@ -452,8 +476,8 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             else:
                 # self._remove_reports_by_user(users[0].id)
                 client.message('Banned %s from reporting' % users[0].name)
-            if users[0].cid in self._banned_status:
-                self._banned_status[users[0].cid] = True
+            if users[0].id in self._banned_status:
+                self._banned_status[users[0].id] = True
 
     def cmd_unbanreporter(self, data, client, cmd=None):
         """
@@ -474,8 +498,11 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                 client.message('%s isn\'t banned!' % users[0].name)
             else:
                 client.message('%s is unbanned from reporting' % users[0].name)
-            if users[0].cid in self._banned_status:
-                self._banned_status[users[0].cid] = False
+            if users[0].cid:
+                self.debug('Setting banned to false')
+                self._banned_status[users[0].id] = False
+            else:
+                self.debug('user not connected?')
 
     def cmd_tsreport(self, data, client, cmd=None):
         """
@@ -523,15 +550,18 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         :param ts: True if this is a teamspeak setting
         """
         try:
-            self.__setattr__(var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
-            self.debug('loaded settings/%s: %s' % (name, self.__getattribute__(var)))
+            setattr(self, var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
+            # self.__setattr__(var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
+            self.debug('loaded settings/%s: %s' % (name, getattr(self, var)))
+            # self.debug('loaded settings/%s: %s' % (name, self.__getattr__(var)))
         except (NoOptionError, ValueError):
             if ts:
                 self.warning('bad or missing settings/%s in config file, disabling TS integration' % name)
                 self._ts_enabled = False
             else:
                 self.warning('Bad type or missing setting %s in config file, using default %s.' %
-                             (name, self.__getattribute__(var)))
+                             # (name, self.__getattr__(var)))
+                             (name, getattr(self, var)))
 
     def on_say(self, event, private=False):
         """
@@ -544,8 +574,9 @@ class Reportcod4Plugin(b3.plugin.Plugin):
 
     def client_disconnect(self, event, private=False):
         data = int(event.data)
-        if data in self._banned_status:
-            self._banned_status.pop(int(event.data))
+        client = self.console.clients.getByCID(data)
+        if client and client.id in self._banned_status:
+            self._banned_status.pop(client.id)
 
     def _admin_report(self, admin, reporter, rcid, name, cid, reason, num_reports):
         """
@@ -586,7 +617,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         Send pokes to admins registered to receive them, and send mass messages
         to requested channels
         :param client: the client making the report
-        :param matches: the matching client
+        :param match: the matching client
         :param data: the data the client supplied
         :param no_admins: whether or not admins have been found to contact
         :return: no_admins original value, or False if an admin was found to poke
@@ -696,6 +727,22 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         :return:
         """
         return msg.replace(' ', '\\s')
+
+    # Import from future b3: mysql.getTables()
+    def get_tables(self):
+        """
+        List the tables of the current database.
+        :return: list of strings.
+        """
+        tables = []
+        cursor = self._query("SHOW TABLES")
+        if cursor and not cursor.EOF:
+            while not cursor.EOF:
+                row = cursor.getRow()
+                tables.append(row.values()[0])
+                cursor.moveNext()
+        cursor.close()
+        return tables
 
     ####################################################################################################################
     #                                                                                                                  #
@@ -825,3 +872,37 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             q = 'DELETE FROM reports_teamspeak WHERE ts_id=%d' % tsid
             self._query(q)
             client.message('^7TS client id ^2%d^7 removed' % tsid)
+
+
+# Import from future version of B3
+def prefixText(prefixes, text):
+    """
+    Add prefixes to a given text.
+    :param prefixes: list[basestring] the list of prefixes to preprend to the text
+    :param text: basestring the text to be prefixed
+    :return basestring
+
+    >>> prefixText(None, None)
+    ''
+    >>> prefixText(None, 'f00')
+    'f00'
+    >>> prefixText([], 'f00')
+    'f00'
+    >>> prefixText(['p1'], 'f00')
+    'p1 f00'
+    >>> prefixText(['p1', 'p2'], 'f00')
+    'p1 p2 f00'
+    >>> prefixText(['p1'], None)
+    ''
+    >>> prefixText(['p1'], '')
+    ''
+    """
+    buff = ''
+    if text:
+        if prefixes:
+            for prefix in prefixes:
+                if prefix:
+                    buff += prefix + ' '
+        buff += text
+    return buff
+
