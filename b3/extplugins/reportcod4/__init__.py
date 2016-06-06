@@ -28,12 +28,6 @@ import time
 class Reportcod4Plugin(b3.plugin.Plugin):
     _adminPlugin = None
 
-    _report_help = 'If their name contains spaces, replace them with ^2_underscores_^7. If their name ' \
-                   'contains special characters, ^2ignore them^7. If their name is ^2completely^7 special ' \
-                   'characters, use ^2noname^7 for the player. Use ^3!report ex ^7for special case examples'
-    _report_examples = ['Spaces: ^5D T R^7 - ^3!report^7 ^5D_T_R^7 Aimbot',
-                        'Special Chars: ^5Pl\xe4yer^7 - ^3!report^7 ^5Plyer^7 Wallhack',
-                        'All Special: ^5\xc7\xfc\xe9^7 - ^3!report^7 ^5noname ^7No recoil']
     _client_banned_message = '^1Error^7: You\'re banned from reporting! ' \
                              'If you think this is an error, contact an administrator'
     _report_spam = '^2You have reported %s people in less than %s, ^3slow down!^7'
@@ -122,9 +116,9 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         :return: False on error
         """
 
-        self.registerEvent(b3.events.EVT_CLIENT_SAY)  # , self.on_say))
+        self.registerEvent(b3.events.EVT_CLIENT_SAY)
         self.registerEvent(b3.events.EVT_CLIENT_TEAM_SAY)
-        self.registerEvent(b3.events.EVT_CLIENT_DISCONNECT)  # , self.client_disconnect))
+        self.registerEvent(b3.events.EVT_CLIENT_DISCONNECT)
         self._adminPlugin = self.console.getPlugin('admin')
         if not self._adminPlugin:
             self.error('Could not load adminPlugin, aborting')
@@ -192,6 +186,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         if event.type == b3.events.EVT_CLIENT_SAY:
             self.on_say(event)
         elif event.type == b3.events.EVT_CLIENT_TEAM_SAY:
+            # forward the message if the b3 version isn't 1.10.x
             if int(b3.__version__.split('.')[1]) < 10:
                 self._adminPlugin.OnSay(event)
         elif event.type == b3.events.EVT_CLIENT_DISCONNECT:
@@ -235,8 +230,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         <player> <reason> - report a player to the admins. Surround their name in single quotes if it contains spaces.
         """
         # First check to see if the client is banned
-        clientid = int(client.cid)
-        if clientid not in self._banned_status:
+        if client.id not in self._banned_status:
             self._banned_status[client.id] = self._is_banned(client.id)
         if self._banned_status[client.id]:
             client.message(self._client_banned_message)
@@ -262,29 +256,11 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             if reason is None:
                 reason = data[1]
             if len(data) == 1:
-                # Only time it's okay to have a single argument is if they're using
-                # 'help' or 'ex'
-                # data = data[0].lower()
-                # if data == 'help':
-                #     client.message(self._report_help)
-                # elif data == 'ex':
-                #     # Very ugly way to enable the latin-1 encodings to be sent via rcon
-                #     # TODO: Find a better way to do this other than temporarily overriding function
-                #     temp = self.console.output.encode_data
-                #     self.console.output.encode_data = self.temp_encode_data
-                #     for msg in self._report_examples:
-                #         msg = prefixText([self.console.msgPrefix, self.console.pmPrefix], msg)
-                #         self.console.output.sendRcon('tell %s %s' % (client.cid, msg))
-                #     self.console.output.encode_data = temp
-                # else:
-                #     client.message('^7You must supply a reason.')
                 client.message('^7You must supply a reason')
                 return
 
             found = False
             decoded = data[0].lower()
-            # Replace underscores with spaces (but don't completely disregard them)
-            # decoded_quotes = decoded.replace('_', ' ')
 
             # Grab current admins
             # TODO: Potentially use getClientsByLevel if we want to customize level
@@ -498,11 +474,8 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                 client.message('%s isn\'t banned!' % users[0].name)
             else:
                 client.message('%s is unbanned from reporting' % users[0].name)
-            if users[0].cid:
-                self.debug('Setting banned to false')
+            if users[0].id in self._banned_status:
                 self._banned_status[users[0].id] = False
-            else:
-                self.debug('user not connected?')
 
     def cmd_tsreport(self, data, client, cmd=None):
         """
@@ -553,7 +526,6 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             setattr(self, var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
             # self.__setattr__(var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
             self.debug('loaded settings/%s: %s' % (name, getattr(self, var)))
-            # self.debug('loaded settings/%s: %s' % (name, self.__getattr__(var)))
         except (NoOptionError, ValueError):
             if ts:
                 self.warning('bad or missing settings/%s in config file, disabling TS integration' % name)
@@ -872,37 +844,3 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             q = 'DELETE FROM reports_teamspeak WHERE ts_id=%d' % tsid
             self._query(q)
             client.message('^7TS client id ^2%d^7 removed' % tsid)
-
-
-# Import from future version of B3
-def prefixText(prefixes, text):
-    """
-    Add prefixes to a given text.
-    :param prefixes: list[basestring] the list of prefixes to preprend to the text
-    :param text: basestring the text to be prefixed
-    :return basestring
-
-    >>> prefixText(None, None)
-    ''
-    >>> prefixText(None, 'f00')
-    'f00'
-    >>> prefixText([], 'f00')
-    'f00'
-    >>> prefixText(['p1'], 'f00')
-    'p1 f00'
-    >>> prefixText(['p1', 'p2'], 'f00')
-    'p1 p2 f00'
-    >>> prefixText(['p1'], None)
-    ''
-    >>> prefixText(['p1'], '')
-    ''
-    """
-    buff = ''
-    if text:
-        if prefixes:
-            for prefix in prefixes:
-                if prefix:
-                    buff += prefix + ' '
-        buff += text
-    return buff
-
