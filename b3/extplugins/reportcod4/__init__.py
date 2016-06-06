@@ -28,6 +28,7 @@ import time
 class Reportcod4Plugin(b3.plugin.Plugin):
     _adminPlugin = None
 
+    _b3_version = None
     _client_banned_message = '^1Error^7: You\'re banned from reporting! ' \
                              'If you think this is an error, contact an administrator'
     _report_spam = '^2You have reported %s people in less than %s, ^3slow down!^7'
@@ -52,6 +53,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
     _report_interval = 60
     _max_report_count = 5
     _reporter_limit = 5
+    _teamchat_only = True
 
     _query = None
 
@@ -88,6 +90,11 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         self._config_load('_report_interval', 'max_report_interval', True)
         self._config_load('_max_report_count', 'max_reports_in_interval', True)
         self._config_load('_reporter_limit', 'max_reporters_to_show', True)
+        try:
+            self._teamchat_only = self.config.getboolean('settings', 'teamchat_only')
+            self.debug('loaded settings/teamchat_only: %s' % self._teamchat_only)
+        except (NoOptionError, ValueError):
+            self.warning('settings/teamchat_only is either missing or a bad value, setting to ' % self._teamchat_only)
 
         # Teamspeak settings
         try:
@@ -110,12 +117,16 @@ class Reportcod4Plugin(b3.plugin.Plugin):
                 self.warning('could not find settings/ts_channels in config file, disabling TS integration')
                 self._ts_enabled = False
 
+    def do_nothing(self):
+        return
+
     def onStartup(self):
         """
         Initialize plugin settings
         :return: False on error
         """
 
+        self._b3_version = b3.__version__
         self.registerEvent(b3.events.EVT_CLIENT_SAY)
         self.registerEvent(b3.events.EVT_CLIENT_TEAM_SAY)
         self.registerEvent(b3.events.EVT_CLIENT_DISCONNECT)
@@ -123,6 +134,13 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         if not self._adminPlugin:
             self.error('Could not load adminPlugin, aborting')
             return False
+        if self._teamchat_only:
+            say_id = self.console.Events.getId('EVT_CLIENT_SAY')
+            del self.console._handlers[say_id][0]
+        # if self.console._handlers and int(self._b3_version.split('.')[1]) < 10:
+        #     del self.console._handlers[5][0]
+        # elif self.console._handlers:
+        #     del self.console._handlers[9][0]
         if 'commands' in self.config.sections():
             for cmd in self.config.options('commands'):
                 level = self.config.get('commands', cmd)
@@ -187,7 +205,7 @@ class Reportcod4Plugin(b3.plugin.Plugin):
             self.on_say(event)
         elif event.type == b3.events.EVT_CLIENT_TEAM_SAY:
             # forward the message if the b3 version isn't 1.10.x
-            if int(b3.__version__.split('.')[1]) < 10:
+            if int(self._b3_version.split('.')[1]) < 10:
                 self._adminPlugin.OnSay(event)
         elif event.type == b3.events.EVT_CLIENT_DISCONNECT:
             self.client_disconnect(event)
@@ -524,7 +542,6 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         """
         try:
             setattr(self, var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
-            # self.__setattr__(var, self.config.getint('settings', name) if is_int else self.config.get('settings', name))
             self.debug('loaded settings/%s: %s' % (name, getattr(self, var)))
         except (NoOptionError, ValueError):
             if ts:
@@ -540,9 +557,11 @@ class Reportcod4Plugin(b3.plugin.Plugin):
         Whenever a player says something to general chat, make sure they aren't using
         !report or !r, as it should only be used in team chat
         """
-        if event.data[:8] == '!report ' or event.data[:3] == '!r ':
-            if not (event.data[8:] == 'help' or event.data[8:] == 'ex'):
-                event.client.message(self._report_to_team_chat)
+        if event.data[:8] == '!report ' or event.data[:3] == '!r '\
+                or event.data == '!report' or event.data == '!r':
+            event.client.message(self._report_to_team_chat)
+        elif self._teamchat_only:
+            self._adminPlugin.OnSay(event)
 
     def client_disconnect(self, event, private=False):
         data = int(event.data)
